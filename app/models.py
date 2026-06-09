@@ -42,6 +42,7 @@ class Transaction(Base):
     
     # LLM classification results
     llm_category = Column(String, nullable=True)
+    llm_raw_response = Column(Text, nullable=True)
     llm_failed = Column(Boolean, default=False, nullable=False)
 
     job = relationship("Job", back_populates="transactions")

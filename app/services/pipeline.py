@@ -1,4 +1,5 @@
 import os
+import json
 import hashlib
 import logging
 from datetime import datetime, date
@@ -181,6 +182,7 @@ def run_pipeline(job_id_str: str):
                         cat = classification_map.get(t.txn_id)
                         if cat:
                             t.llm_category = cat
+                            t.llm_raw_response = json.dumps(classification_map)
                         else:
                             t.llm_failed = True
                 except Exception as e:

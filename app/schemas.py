@@ -56,6 +56,7 @@ class TransactionResponse(BaseModel):
     is_anomaly: bool
     anomaly_reason: Optional[str] = None
     llm_category: Optional[str] = None
+    llm_raw_response: Optional[str] = None
     llm_failed: bool
 
     model_config = ConfigDict(from_attributes=True)
