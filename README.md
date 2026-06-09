@@ -19,7 +19,7 @@ graph TD
     Gemini[Google Gemini 2.5 Flash API]
 
     Client -->|1. POST /jobs/upload| FastAPI
-    Client -->|8. GET /jobs/{id}/results| FastAPI
+    Client -->|8. GET /jobs/:id/results| FastAPI
     FastAPI -->|2. Write CSV file| SharedVolume
     FastAPI -->|3. Enqueue Job ID| Redis
     FastAPI -->|Query Status/Results| Postgres
