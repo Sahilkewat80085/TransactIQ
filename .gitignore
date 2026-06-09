@@ -1,0 +1,23 @@
+# Environment Variables & Secrets
+.env
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+
+# Python Caches & Compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Local database volumes (if mounted locally)
+postgres_data/
+
+# Application Uploads & Temp files
+uploads/*.csv
+!uploads/.gitkeep
+# Keep the uploads folder structure but ignore its contents
