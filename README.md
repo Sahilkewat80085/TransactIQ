@@ -1,61 +1,99 @@
 # TransactIQ: AI-Powered Transaction Processing Pipeline
 
-TransactIQ is an asynchronous backend system that processes dirty financial transaction datasets, normalizes and cleans the data, flags statistical and currency anomalies, leverages Google Gemini 1.5 Flash (via batch processing) to classify missing spend categories, and produces an executive narrative summary with a risk assessment level.
+Welcome to **TransactIQ**—a premium, asynchronous backend architecture engineered to ingest, clean, and analyze dirty financial transactions, flag anomalies, and leverage **Google Gemini 2.5 Flash** to classify missing categories and generate executive summaries.
 
 ---
 
-## 🏗️ Architecture & Request Lifecycle
+## 🏗️ System Architecture Blueprint
 
-```
-[Client] ---> POST /jobs/upload ---> [FastAPI App] ---> Enqueue Celery Task
-                                          |
-                                          v
-                                    [Save CSV file]
-                                          |
-                                          v
-                                   [Celery Worker]
-                                          |
-                        +-----------------+-----------------+
-                        |                 |                 |
-                        v                 v                 v
-                [Data Cleaning]   [Anomaly Detection]  [LLM Batching]
-                        |                 |                 |
-                        +-----------------+-----------------+
-                                          |
-                                          v
-                               [Save to PostgreSQL]
-                                          |
-                                          v
-                              [Generate LLM Summary]
-```
+This diagram illustrates how all containerized services communicate with each other:
 
-1. **Request Reception**: The client uploads a CSV file containing transactions. The API generates a unique `job_id`, saves the CSV to a shared storage directory, and enqueues a background task via Celery.
-2. **Immediate Response**: The API returns the `job_id` and status `pending` immediately (<1s) without blocking.
-3. **Task Dequeuing**: A Celery worker picks up the job and transitions its status to `processing`.
-4. **Data Normalization**: Mixed date formats are normalized to ISO 8601 (`YYYY-MM-DD`), dollar signs are stripped, status/currency casing are normalized, and missing `txn_id`s are filled using idempotent stable hashes.
-5. **Anomaly Detection**:
-   - **Rule 1**: Outlier flagged if transaction `amount > 3x account median` spend.
-   - **Rule 2**: Currency mismatch flagged if transaction currency is `USD` for domestic Indian brands.
-6. **LLM Classification**: Transactions with missing/blank categories are batched (up to 20 per call) and classified using Google Gemini 1.5 Flash.
-7. **Executive Summary**: Aggregated spending indicators are sent to Gemini to generate a narrative spending summary and overall risk level assessment (`low`, `medium`, `high`).
-8. **Completion**: The worker updates the job status to `completed` (or `failed` with error traceback details).
+```mermaid
+graph TD
+    Client[Client API Consumer]
+    FastAPI[FastAPI App <br/>Port 8000]
+    Redis[Redis Message Broker <br/>Port 6379]
+    Worker[Celery Background Worker]
+    Postgres[(PostgreSQL DB <br/>Port 5432)]
+    SharedVolume[(Shared Volume Mount <br/>/app/uploads)]
+    Gemini[Google Gemini 2.5 Flash API]
+
+    Client -->|1. POST /jobs/upload| FastAPI
+    Client -->|8. GET /jobs/{id}/results| FastAPI
+    FastAPI -->|2. Write CSV file| SharedVolume
+    FastAPI -->|3. Enqueue Job ID| Redis
+    FastAPI -->|Query Status/Results| Postgres
+    Redis -->|4. Dequeue Job ID| Worker
+    Worker -->|5. Read CSV file| SharedVolume
+    Worker -->|6. Call LLM for Classify/Narrative| Gemini
+    Worker -->|7. Persist Clean Rows & Summaries| Postgres
+```
 
 ---
 
-## 🛠️ Tech Stack
-- **API**: FastAPI, Uvicorn
-- **Task Queue & Broker**: Celery, Redis
-- **Database & ORM**: PostgreSQL, SQLAlchemy, Alembic (migrations)
-- **Data Wrangling**: Pandas, Python-dateutil
-- **AI Integration**: Google Generative AI SDK (Gemini 1.5 Flash)
+## 🔄 Request Lifecycle & Sequence Flow
+
+Here is the exact step-by-step path a single upload takes from the moment it hits our API endpoint to database persistence and back:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client
+    participant API as FastAPI App
+    participant Disk as Shared Volume (/uploads)
+    participant Broker as Redis Broker
+    participant Worker as Celery Worker
+    participant DB as PostgreSQL DB
+    participant LLM as Gemini 2.5 Flash
+
+    Client->>API: POST /jobs/upload (transactions.csv)
+    API->>Disk: Save uploaded file as {job_id}.csv
+    API->>DB: Insert Job(id={job_id}, status="pending")
+    API->>Broker: Enqueue process_csv_task({job_id})
+    API-->>Client: Return 202 Accepted (job_id, status="pending")
+    
+    Note over Worker, Broker: Task is popped by the Celery worker
+    Broker->>Worker: Dequeue task
+    Worker->>DB: Update Job status="processing"
+    Worker->>Disk: Read file {job_id}.csv
+    Worker->>Worker: Step 1 & 2: Clean data & calculate medians
+    Worker->>Worker: Step 3: Run anomaly checks
+    Worker->>DB: Bulk insert Transaction rows
+    
+    Note over Worker, LLM: Batch process blank categories (max 20/batch)
+    Worker->>LLM: POST batch categorise request
+    LLM-->>Worker: JSON Response {"txn_id": "category"}
+    Worker->>DB: Update llm_category & llm_raw_response
+    
+    Note over Worker, LLM: Aggregate metrics & narrative
+    Worker->>LLM: Request spend summary narrative + risk assessment
+    LLM-->>Worker: JSON Summary response
+    Worker->>DB: Insert JobSummary row
+    Worker->>DB: Update Job status="completed", completed_at=now()
+    
+    Client->>API: GET /jobs/{job_id}/results
+    API->>DB: Query Job, Transactions & Summary
+    API-->>Client: Return structured JSON results & category breakdowns
+```
+
+---
+
+## 💡 Architectural Decisions: The "Why"
+
+* **FastAPI**: Handles high-concurrency requests asynchronously, leverages Pydantic for validation, and automatically hosts interactive Swagger documentation at `/docs`.
+* **Celery + Redis**: Decouples heavy computations and LLM APIs from the web request thread. Redis acts as a fast broker and task result backend.
+* **PostgreSQL & Alembic**: Relational database to enforce integrity between `jobs`, `transactions` and `job_summaries` tables with cascading deletes. Database migrations are executed **automatically on container startup**.
+* **Shared Volume (`/app/uploads`)**: Bypasses passing large files through Redis or storing bloated raw blobs in PostgreSQL, allowing the API and worker to communicate via files saved on shared disk volume.
+* **Gemini 2.5 Flash**: Selected for speed, cost efficiency, and structured JSON output configuration (`response_mime_type="application/json"`), ensuring valid database payload mapping.
+* **Graceful Degradation**: If no `GEMINI_API_KEY` is provided, the pipeline switches to a keyword-based rule classifier and fallback narrative builder to keep the pipeline executable out-of-the-box.
 
 ---
 
 ## 🚀 Getting Started
 
 ### 1. Prerequisites
-- Docker & Docker Compose
-- Google Gemini API Key (get a free one from [Google AI Studio](https://aistudio.google.com/))
+- Docker and Docker Compose
+- Google Gemini API Key (get one at [Google AI Studio](https://aistudio.google.com/))
 
 ### 2. Configuration Setup
 Copy `.env.example` to `.env`:
@@ -68,11 +106,11 @@ GEMINI_API_KEY=AIzaSy...
 ```
 
 ### 3. Launching the Services
-Boot the entire system (database, Redis, API server, and worker) with a single command:
+Run the entire container stack with a single command:
 ```bash
 docker compose up --build
 ```
-The API documentation will be available at [http://localhost:8000/docs](http://localhost:8000/docs).
+Interactive docs will immediately become available at [http://localhost:8000/docs](http://localhost:8000/docs).
 
 ---
 
@@ -86,7 +124,7 @@ curl -X POST -F "file=@transactions.csv" http://localhost:8000/jobs/upload
 **Response**:
 ```json
 {
-  "job_id": "35f8e5f2-959c-4573-bf01-6b22c7cc1930",
+  "job_id": "56238606-168a-4f3f-96ff-1f18ae87db08",
   "status": "pending",
   "message": "CSV upload accepted. Job enqueued for processing."
 }
@@ -95,24 +133,24 @@ curl -X POST -F "file=@transactions.csv" http://localhost:8000/jobs/upload
 ### 2. Poll Job Status
 Retrieve the current status of the background execution job.
 ```bash
-curl http://localhost:8000/jobs/35f8e5f2-959c-4573-bf01-6b22c7cc1930/status
+curl http://localhost:8000/jobs/56238606-168a-4f3f-96ff-1f18ae87db08/status
 ```
 **Response (when completed)**:
 ```json
 {
-  "job_id": "35f8e5f2-959c-4573-bf01-6b22c7cc1930",
+  "job_id": "56238606-168a-4f3f-96ff-1f18ae87db08",
   "status": "completed",
   "filename": "transactions.csv",
-  "row_count_raw": 96,
-  "row_count_clean": 90,
-  "created_at": "2026-06-09T17:30:00Z",
-  "completed_at": "2026-06-09T17:31:05Z",
+  "row_count_raw": 95,
+  "row_count_clean": 85,
+  "created_at": "2026-06-10T00:33:00Z",
+  "completed_at": "2026-06-10T00:33:03Z",
   "error_message": null,
   "summary": {
-    "total_spend_inr": 845209.43,
-    "total_spend_usd": 48215.12,
-    "anomaly_count": 5,
-    "risk_level": "medium"
+    "total_spend_inr": 1339922.99,
+    "total_spend_usd": 74185.14,
+    "anomaly_count": 10,
+    "risk_level": "high"
   }
 }
 ```
@@ -120,20 +158,20 @@ curl http://localhost:8000/jobs/35f8e5f2-959c-4573-bf01-6b22c7cc1930/status
 ### 3. Retrieve Full Results
 Retrieve the detailed structured output of the job, including normalized transactions, anomalies, per-category breakdown, and narrative.
 ```bash
-curl http://localhost:8000/jobs/35f8e5f2-959c-4573-bf01-6b22c7cc1930/results
+curl http://localhost:8000/jobs/56238606-168a-4f3f-96ff-1f18ae87db08/results
 ```
 **Response**:
 ```json
 {
-  "job_id": "35f8e5f2-959c-4573-bf01-6b22c7cc1930",
+  "job_id": "56238606-168a-4f3f-96ff-1f18ae87db08",
   "status": "completed",
   "summary": {
-    "total_spend_inr": 845209.43,
-    "total_spend_usd": 48215.12,
+    "total_spend_inr": 1339922.99,
+    "total_spend_usd": 74185.14,
     "top_merchants": ["IRCTC", "Flipkart", "Ola"],
-    "anomaly_count": 5,
-    "narrative": "Spending was concentrated on transport and travel, particularly with IRCTC and Ola. A total of 5 anomalies were flagged including several large dollar amounts.",
-    "risk_level": "medium"
+    "anomaly_count": 10,
+    "narrative": "Spending was concentrated on transport and travel, particularly with IRCTC and Ola. A total of 10 anomalies were flagged including several large dollar amounts.",
+    "risk_level": "high"
   },
   "transactions": [
     {
@@ -149,6 +187,7 @@ curl http://localhost:8000/jobs/35f8e5f2-959c-4573-bf01-6b22c7cc1930/results
       "is_anomaly": false,
       "anomaly_reason": null,
       "llm_category": null,
+      "llm_raw_response": null,
       "llm_failed": false
     }
   ],
@@ -165,17 +204,4 @@ curl http://localhost:8000/jobs/35f8e5f2-959c-4573-bf01-6b22c7cc1930/results
 List all processed uploads, optionally filtering by status.
 ```bash
 curl http://localhost:8000/jobs?status=completed
-```
-**Response**:
-```json
-[
-  {
-    "id": "35f8e5f2-959c-4573-bf01-6b22c7cc1930",
-    "filename": "transactions.csv",
-    "status": "completed",
-    "row_count_raw": 96,
-    "row_count_clean": 90,
-    "created_at": "2026-06-09T17:30:00Z"
-  }
-]
 ```
