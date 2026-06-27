@@ -1,3 +1,4 @@
+import csv
 import os
 import shutil
 import uuid
@@ -24,6 +25,40 @@ def upload_csv(
     # Basic validation
     if not file.filename.endswith('.csv'):
         raise HTTPException(status_code=400, detail="Only CSV files are allowed.")
+        
+    # 1. Limit file size to 10MB
+    MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+    try:
+        file.file.seek(0, 2)  # Seek to end
+        file_size = file.file.tell()
+        file.file.seek(0)  # Reset to beginning
+        if file_size > MAX_FILE_SIZE:
+            raise HTTPException(status_code=400, detail="File size exceeds maximum limit of 10MB.")
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=400, detail=f"Failed to check file size: {str(e)}")
+
+    # 2. Validate CSV headers
+    try:
+        first_line = file.file.readline().decode('utf-8-sig')  # Handles UTF-8 BOM
+        file.file.seek(0)
+        
+        reader = csv.reader([first_line])
+        headers = next(reader, [])
+        headers = [h.strip().lower() for h in headers]
+        
+        required_fields = ['txn_id', 'date', 'merchant', 'amount', 'currency', 'status', 'category', 'account_id']
+        missing_fields = [f for f in required_fields if f not in headers]
+        if missing_fields:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid CSV structure. Missing required columns: {', '.join(missing_fields)}"
+            )
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=400, detail=f"Invalid CSV file or encoding: {str(e)}")
     
     # Generate unique job ID
     job_id = uuid.uuid4()
