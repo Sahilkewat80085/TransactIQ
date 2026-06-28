@@ -4,14 +4,36 @@ import shutil
 import uuid
 from typing import List, Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Query
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Query, Security, status
+from fastapi.security import APIKeyHeader
 from sqlalchemy.orm import Session
+from app.config import settings
 from app.database import get_db
 from app.models import Job, Transaction, JobSummary
 from app.schemas import JobUploadResponse, JobStatusResponse, JobResultsResponse, JobListItem, SummaryStats, FullSummaryResponse, TransactionResponse
 from app.tasks import process_csv_task
 
-router = APIRouter(prefix="/jobs", tags=["jobs"])
+API_KEY_NAME = "X-API-KEY"
+api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
+
+def verify_api_key(api_key: str = Security(api_key_header)):
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="API Key is missing."
+        )
+    if api_key != settings.API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API Key."
+        )
+    return api_key
+
+router = APIRouter(
+    prefix="/jobs",
+    tags=["jobs"],
+    dependencies=[Depends(verify_api_key)]
+)
 
 # Ensure uploads directory exists
 UPLOAD_DIR = "uploads"
