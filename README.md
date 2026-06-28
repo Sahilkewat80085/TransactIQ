@@ -89,6 +89,18 @@ sequenceDiagram
 
 ---
 
+## 🛡️ Security Wall & Hardening
+
+TransactIQ implements a multi-layered security architecture protecting all financial data endpoints:
+- **API Key Authentication**: All endpoints under the `/jobs` prefix require the `X-API-KEY` header. Configure your custom key in the `.env` file (`API_KEY` parameter).
+- **Redis-Backed Rate Limiting**: All routes are protected by a sliding-window rate limiter (default: 15 requests per minute per IP). If Redis is unavailable, it gracefully degrades to a thread-safe in-memory sliding-window limiter.
+- **Strict CORS & HTTP Security Headers**: Hardened CORS policies restrict API requests to whitelisted dev ports, and middleware enforces `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, and custom CSP layers.
+- **Input Sanitization & XSS Defense**: All merchant names and transaction notes parsed from CSV uploads are automatically stripped of HTML tags, `javascript:` prefixes, and inline script event handlers (`onload`, `onerror`, etc.).
+- **MIME & Size Restrictions**: Enforces a strict 10MB upload limit and rejects uploads mismatching valid CSV MIME signatures (`text/csv`).
+- **Security Auditing**: Authentication failures, file blocks, and input sanitization triggers generate structured `SECURITY ALERT` warning messages in the application logs.
+
+---
+
 ## 🚀 Getting Started
 
 ### 1. Prerequisites
@@ -119,7 +131,7 @@ Interactive docs will immediately become available at [http://localhost:8000/doc
 ### 1. Upload a CSV File
 Upload a CSV dataset of transactions to start processing.
 ```bash
-curl -X POST -F "file=@transactions.csv" http://localhost:8000/jobs/upload
+curl -X POST -H "X-API-KEY: transactiq_secret_key" -F "file=@transactions.csv" http://localhost:8000/jobs/upload
 ```
 **Response**:
 ```json
@@ -133,7 +145,7 @@ curl -X POST -F "file=@transactions.csv" http://localhost:8000/jobs/upload
 ### 2. Poll Job Status
 Retrieve the current status of the background execution job.
 ```bash
-curl http://localhost:8000/jobs/56238606-168a-4f3f-96ff-1f18ae87db08/status
+curl -H "X-API-KEY: transactiq_secret_key" http://localhost:8000/jobs/56238606-168a-4f3f-96ff-1f18ae87db08/status
 ```
 **Response (when completed)**:
 ```json
@@ -158,7 +170,7 @@ curl http://localhost:8000/jobs/56238606-168a-4f3f-96ff-1f18ae87db08/status
 ### 3. Retrieve Full Results
 Retrieve the detailed structured output of the job, including normalized transactions, anomalies, per-category breakdown, and narrative.
 ```bash
-curl http://localhost:8000/jobs/56238606-168a-4f3f-96ff-1f18ae87db08/results
+curl -H "X-API-KEY: transactiq_secret_key" http://localhost:8000/jobs/56238606-168a-4f3f-96ff-1f18ae87db08/results
 ```
 **Response**:
 ```json
@@ -203,5 +215,5 @@ curl http://localhost:8000/jobs/56238606-168a-4f3f-96ff-1f18ae87db08/results
 ### 4. List All Jobs
 List all processed uploads, optionally filtering by status.
 ```bash
-curl http://localhost:8000/jobs?status=completed
+curl -H "X-API-KEY: transactiq_secret_key" "http://localhost:8000/jobs?status=completed"
 ```
