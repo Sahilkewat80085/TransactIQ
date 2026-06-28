@@ -60,3 +60,38 @@ def test_list_jobs():
     assert isinstance(response.json(), list)
     
     app.dependency_overrides.clear()
+
+def test_api_key_unauthorized():
+    response = client.get("/jobs")  # No headers passed
+    assert response.status_code == 401
+    assert "API Key is missing" in response.json()["detail"]
+
+def test_api_key_invalid():
+    response = client.get("/jobs", headers={"X-API-KEY": "wrong_key"})
+    assert response.status_code == 401
+    assert "Invalid API Key" in response.json()["detail"]
+
+def test_upload_invalid_mime_type():
+    files = {"file": ("test.csv", b"txn_id,date,merchant,amount,currency,status,category,account_id\n", "text/plain")}
+    response = client.post("/jobs/upload", files=files, headers=HEADERS)
+    assert response.status_code == 400
+    assert "Unsupported content type" in response.json()["detail"]
+
+def test_rate_limiter_logic():
+    import pytest
+    from fastapi import HTTPException
+    from app.services.rate_limiter import check_rate_limit
+    
+    mock_request = MagicMock()
+    mock_request.client.host = "1.2.3.4"
+    mock_request.url.path = "/test-route"
+    
+    # Run once - should succeed
+    check_rate_limit(mock_request, limit=1, window=10)
+    
+    # Run twice - should raise 429
+    with pytest.raises(HTTPException) as exc_info:
+        check_rate_limit(mock_request, limit=1, window=10)
+        
+    assert exc_info.value.status_code == 429
+    assert "Too many requests" in exc_info.value.detail

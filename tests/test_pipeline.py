@@ -66,3 +66,16 @@ def test_anomaly_detection_logic():
     assert is_anom
     assert "Statistical outlier" in reason
     assert "Currency anomaly" in reason
+
+def test_sanitize_string():
+    from app.services.pipeline import sanitize_string
+    
+    # Test script tags removal
+    assert "alert('xss')" in sanitize_string("Hello <script>alert('xss')</script> World")
+    assert "<script>" not in sanitize_string("Hello <script>alert('xss')</script> World")
+    # Test javascript protocol removal
+    assert "javascript:" not in sanitize_string("javascript:alert(1)")
+    # Test event handlers removal
+    assert "onerror" not in sanitize_string("<img src=x onerror=alert(1)>")
+    # Test clean input remains untouched
+    assert sanitize_string("Clean transaction notes") == "Clean transaction notes"
