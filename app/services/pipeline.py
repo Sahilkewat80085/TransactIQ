@@ -61,7 +61,11 @@ def sanitize_string(val: str) -> str:
     clean = re.sub(r'(?i)javascript:', '', clean)
     # Remove onclick/onload/onerror event handlers
     clean = re.sub(r'(?i)on\w+\s*=', '', clean)
-    return clean.strip()
+    
+    cleaned = clean.strip()
+    if cleaned != val.strip():
+        logger.warning(f"SECURITY ALERT: Injection attempt detected and stripped: original='{val}' -> cleaned='{cleaned}'")
+    return cleaned
 
 def run_pipeline(job_id_str: str):
     """Executes the 5-step processing pipeline."""

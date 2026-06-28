@@ -2,9 +2,10 @@ import csv
 import os
 import shutil
 import uuid
+import logging
 from typing import List, Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Query, Security, status
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Query, Security, status, Request
 from fastapi.security import APIKeyHeader
 from sqlalchemy.orm import Session
 from app.config import settings
@@ -13,16 +14,21 @@ from app.models import Job, Transaction, JobSummary
 from app.schemas import JobUploadResponse, JobStatusResponse, JobResultsResponse, JobListItem, SummaryStats, FullSummaryResponse, TransactionResponse
 from app.tasks import process_csv_task
 
+logger = logging.getLogger(__name__)
+
 API_KEY_NAME = "X-API-KEY"
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 
-def verify_api_key(api_key: str = Security(api_key_header)):
+def verify_api_key(request: Request, api_key: str = Security(api_key_header)):
+    client_ip = request.client.host if request.client else "unknown_ip"
     if not api_key:
+        logger.warning(f"SECURITY ALERT: Missing API Key from IP {client_ip} on {request.url.path}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="API Key is missing."
         )
     if api_key != settings.API_KEY:
+        logger.warning(f"SECURITY ALERT: Invalid API Key attempt from IP {client_ip} on {request.url.path}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API Key."
