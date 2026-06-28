@@ -29,10 +29,12 @@ def verify_api_key(api_key: str = Security(api_key_header)):
         )
     return api_key
 
+from app.services.rate_limiter import check_rate_limit
+
 router = APIRouter(
     prefix="/jobs",
     tags=["jobs"],
-    dependencies=[Depends(verify_api_key)]
+    dependencies=[Depends(verify_api_key), Depends(check_rate_limit)]
 )
 
 # Ensure uploads directory exists
