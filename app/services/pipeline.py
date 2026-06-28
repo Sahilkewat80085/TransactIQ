@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import hashlib
 import logging
@@ -50,6 +51,18 @@ def generate_stable_txn_id(row, idx) -> str:
     h = hashlib.md5(raw_str.encode('utf-8')).hexdigest()[:8].upper()
     return f"TXN_GEN_{h}"
 
+def sanitize_string(val: str) -> str:
+    """Strips HTML tags and removes common script injection patterns to protect against XSS."""
+    if not val:
+        return ""
+    # Strip HTML tags
+    clean = re.sub(r'<[^>]*?>', '', val)
+    # Remove javascript: protocols
+    clean = re.sub(r'(?i)javascript:', '', clean)
+    # Remove onclick/onload/onerror event handlers
+    clean = re.sub(r'(?i)on\w+\s*=', '', clean)
+    return clean.strip()
+
 def run_pipeline(job_id_str: str):
     """Executes the 5-step processing pipeline."""
     try:
@@ -100,16 +113,16 @@ def run_pipeline(job_id_str: str):
                 txn_id = raw_txn_id if raw_txn_id and raw_txn_id != 'nan' else generate_stable_txn_id(row, idx)
                 
                 txn_date = parse_date_robust(row.get('date'))
-                merchant = str(row.get('merchant', '')).strip()
+                merchant = sanitize_string(str(row.get('merchant', ''))).strip()
                 amount = row['cleaned_amount']
                 currency = str(row.get('currency', '')).strip().upper()
                 status = str(row.get('status', '')).strip().upper()
                 
                 raw_cat = str(row.get('category', '')).strip()
-                category = raw_cat if raw_cat and raw_cat != 'nan' else 'Uncategorised'
+                category = sanitize_string(raw_cat if raw_cat and raw_cat != 'nan' else 'Uncategorised')
                 
                 account_id = row['cleaned_account_id']
-                notes = str(row.get('notes', '')).strip() if not pd.isna(row.get('notes')) else None
+                notes = sanitize_string(str(row.get('notes', ''))).strip() if not pd.isna(row.get('notes')) else None
                 
                 # Anomaly Detection
                 is_anomaly = False

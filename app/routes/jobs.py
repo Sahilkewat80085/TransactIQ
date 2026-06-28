@@ -50,6 +50,14 @@ def upload_csv(
     if not file.filename.endswith('.csv'):
         raise HTTPException(status_code=400, detail="Only CSV files are allowed.")
         
+    # Validate MIME type
+    allowed_types = ["text/csv", "application/vnd.ms-excel", "text/x-csv", "application/csv"]
+    if file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only CSV files are allowed. Unsupported content type: {file.content_type}"
+        )
+        
     # 1. Limit file size to 10MB
     MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
     try:
